@@ -12,17 +12,14 @@ import (
 
 	dockerapi "github.com/fsouza/go-dockerclient"
 	"github.com/gliderlabs/pkg/usage"
-	"github.com/gliderlabs/registrator/bridge"
+	"github.com/chloetigre/herp/bridge"
 )
 
 var Version string
 
 var versionChecker = usage.NewChecker("registrator", Version)
 
-var hostIp = flag.String("ip", "", "IP for ports mapped to the host")
-var internal = flag.Bool("internal", false, "Use internal ports instead of published ones")
 var explicit = flag.Bool("explicit", false, "Only register containers which have SERVICE_NAME label set")
-var useIpFromLabel = flag.String("useIpFromLabel", "", "Use IP which is stored in a label assigned to the container")
 var refreshInterval = flag.Int("ttl-refresh", 0, "Frequency with which service TTLs are refreshed")
 var refreshTtl = flag.Int("ttl", 0, "TTL for services (default is no expiry)")
 var forceTags = flag.String("tags", "", "Append tags for all registered services")
@@ -31,6 +28,7 @@ var deregister = flag.String("deregister", "always", "Deregister exited services
 var retryAttempts = flag.Int("retry-attempts", 0, "Max retry attempts to establish a connection with the backend. Use -1 for infinite retries")
 var retryInterval = flag.Int("retry-interval", 2000, "Interval (in millisecond) between retry-attempts.")
 var cleanup = flag.Bool("cleanup", false, "Remove dangling services")
+var useAddressFromLabel = flag.String("useAddressFromLabel", "", "Use URI stored in a label assigned to the container")
 
 func getopt(name, def string) string {
 	if env := os.Getenv(name); env != "" {
@@ -72,9 +70,6 @@ func main() {
 		os.Exit(2)
 	}
 
-	if *hostIp != "" {
-		log.Println("Forcing host IP to", *hostIp)
-	}
 
 	if (*refreshTtl == 0 && *refreshInterval > 0) || (*refreshTtl > 0 && *refreshInterval == 0) {
 		assert(errors.New("-ttl and -ttl-refresh must be specified together or not at all"))
@@ -103,15 +98,13 @@ func main() {
 	}
 
 	b, err := bridge.New(docker, flag.Arg(0), bridge.Config{
-		HostIp:          *hostIp,
-		Internal:        *internal,
-		Explicit:        *explicit,
-		UseIpFromLabel:  *useIpFromLabel,
-		ForceTags:       *forceTags,
-		RefreshTtl:      *refreshTtl,
-		RefreshInterval: *refreshInterval,
-		DeregisterCheck: *deregister,
-		Cleanup:         *cleanup,
+		Explicit:            *explicit,
+		UseAddressFromLabel: *useAddressFromLabel,
+		ForceTags:           *forceTags,
+		RefreshTtl:          *refreshTtl,
+		RefreshInterval:     *refreshInterval,
+		DeregisterCheck:     *deregister,
+		Cleanup:             *cleanup,
 	})
 
 	assert(err)

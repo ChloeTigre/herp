@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/gliderlabs/registrator/bridge"
+	"github.com/chloetigre/herp/bridge"
 	"github.com/samuel/go-zookeeper/zk"
 )
 

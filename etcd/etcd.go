@@ -10,7 +10,7 @@ import (
 	"strconv"
 
 	etcd2 "github.com/coreos/go-etcd/etcd"
-	"github.com/gliderlabs/registrator/bridge"
+	"github.com/chloetigre/herp/bridge"
 	etcd "gopkg.in/coreos/go-etcd.v0/etcd"
 )
 

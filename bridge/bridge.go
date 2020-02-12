@@ -3,7 +3,6 @@ package bridge
 import (
 	"errors"
 	"log"
-	"net"
 	"net/url"
 	"os"
 	"path"
@@ -218,12 +217,6 @@ func (b *Bridge) add(containerId string, quiet bool) {
 
 	servicePorts := make(map[string]ServicePort)
 	for key, port := range ports {
-		if b.config.Internal != true && port.HostPort == "" {
-			if !quiet {
-				log.Println("ignored:", container.ID[:12], "port", port.ExposedPort, "not published on host")
-			}
-			continue
-		}
 		servicePorts[key] = port
 	}
 
@@ -250,28 +243,12 @@ func (b *Bridge) newService(port ServicePort, isgroup bool) *Service {
 	container := port.container
 	defaultName := strings.Split(path.Base(container.Config.Image), ":")[0]
 
-	// not sure about this logic. kind of want to remove it.
-	hostname := Hostname
-	if hostname == "" {
-		hostname = port.HostIP
-	}
-	if port.HostIP == "0.0.0.0" {
-		ip, err := net.ResolveIPAddr("ip", hostname)
-		if err == nil {
-			port.HostIP = ip.String()
-		}
-	}
+    metadata, metadataFromPort := serviceMetaData(container.Config, port.ExposedPort)
 
-	if b.config.HostIp != "" {
-		port.HostIP = b.config.HostIp
-	}
-
-	metadata, metadataFromPort := serviceMetaData(container.Config, port.ExposedPort)
-
-	ignore := mapDefault(metadata, "ignore", "")
-	if ignore != "" {
-		return nil
-	}
+    ignore := mapDefault(metadata, "ignore", "")
+    if ignore != "" {
+        return nil
+    }
 
 	serviceName := mapDefault(metadata, "name", "")
 	if serviceName == "" {
@@ -283,38 +260,17 @@ func (b *Bridge) newService(port ServicePort, isgroup bool) *Service {
 
 	service := new(Service)
 	service.Origin = port
-	service.ID = hostname + ":" + container.Name[1:] + ":" + port.ExposedPort
+	// service.ID = hostname + ":" + container.Name[1:] + ":" + port.ExposedPort
+    service.ID = container.Name[1:] + ":" + port.ExposedPort
 	service.Name = serviceName
 	if isgroup && !metadataFromPort["name"] {
 		service.Name += "-" + port.ExposedPort
 	}
 	var p int
 
-	if b.config.Internal == true {
-		service.IP = port.ExposedIP
-		p, _ = strconv.Atoi(port.ExposedPort)
-	} else {
-		service.IP = port.HostIP
-		p, _ = strconv.Atoi(port.HostPort)
-	}
+    service.IP = port.HostIP
+    p, _ = strconv.Atoi(port.HostPort)
 	service.Port = p
-
-	if b.config.UseIpFromLabel != "" {
-		containerIp := container.Config.Labels[b.config.UseIpFromLabel]
-		if containerIp != "" {
-			slashIndex := strings.LastIndex(containerIp, "/")
-			if slashIndex > -1 {
-				service.IP = containerIp[:slashIndex]
-			} else {
-				service.IP = containerIp
-			}
-			log.Println("using container IP " + service.IP + " from label '" +
-				b.config.UseIpFromLabel  + "'")
-		} else {
-			log.Println("Label '" + b.config.UseIpFromLabel +
-				"' not found in container configuration")
-		}
-	}
 
 	// NetworkMode can point to another container (kuberenetes pods)
 	networkMode := container.HostConfig.NetworkMode
@@ -346,6 +302,45 @@ func (b *Bridge) newService(port ServicePort, isgroup bool) *Service {
 		service.ID = id
 	}
 
+    // parse service url from label and fill everything this way
+    // this overrides anything else
+    if b.config.UseAddressFromLabel != "" {
+        containerAddress := container.Config.Labels[b.config.UseAddressFromLabel]
+        if containerAddress != "" {
+            uri, err := url.Parse(containerAddress)
+            if err != nil {
+                log.Println("Label '" + b.config.UseAddressFromLabel +
+                "' has improper format")
+                return nil
+            }
+            service.IP = uri.Host
+
+            scheme := uri.Scheme
+            ps := uri.Port()
+            if ps != "" {
+                p, err := strconv.Atoi(ps)
+                if err != nil {
+                   log.Println("bad port specified in URI '" + containerAddress +
+                    "' from label " + b.config.UseAddressFromLabel)
+                    return nil
+                }
+                service.Port = p
+            } else if scheme == "http" {
+                service.Port = 80
+            } else if scheme == "https" {
+                service.Port = 443
+            } else {
+                   log.Println("cannot identify port from URI '" + containerAddress +
+                    "' from label " + b.config.UseAddressFromLabel)
+                    return nil
+            }
+            service.IP = uri.Hostname()
+        } else {
+            log.Println("Label '" + b.config.UseAddressFromLabel +
+            "' not found in container configuration, skipping")
+            return nil
+        }
+    }
 	delete(metadata, "id")
 	delete(metadata, "tags")
 	delete(metadata, "name")
